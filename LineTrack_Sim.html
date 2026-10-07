@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LineTrack Sim</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -80,6 +80,16 @@ body[data-mode="manual"] [data-only="manual"], body[data-mode="run"] [data-only=
 .code div.on{background:var(--code-hl);border-left-color:var(--led)}
 .code .c{color:var(--muted)}
 .foot{font-size:13px;color:var(--muted);margin-top:4px}
+.pwm{display:grid;grid-template-columns:minmax(0,1fr) 52px;gap:2px 12px;align-items:center}
+.pwm label{font-size:14px;color:var(--body);display:flex;justify-content:space-between;gap:8px;grid-column:1/-1;margin-top:6px}
+.pwm label code{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.pwm input[type=range]{grid-column:1}
+.pwm input[type=number]{grid-column:2;width:100%;font-family:var(--f-mono);font-size:13px;padding:3px 4px;border:1px solid var(--rule);border-radius:6px;background:var(--bg);color:var(--ink);text-align:right}
+.pwm-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.pwm-actions button{font:inherit;font-size:14px;border:1px solid var(--rule);background:var(--panel);color:var(--body);border-radius:8px;padding:4px 11px;cursor:pointer}
+.pwm-actions button:hover{border-color:var(--accent);color:var(--accent)}
+.warn{font-size:13px;color:var(--led);margin:8px 0 0}
+pre.out{font-family:var(--f-mono);font-size:12px;line-height:1.6;background:var(--soft);border:1px solid var(--rule);border-radius:8px;padding:8px 12px;margin:10px 0 0;overflow-x:auto;color:var(--ink);user-select:all}
 @media (prefers-reduced-motion: reduce){ .led,.fill,.code div{transition:none} }
 </style>
 </head>
@@ -99,6 +109,7 @@ body[data-mode="manual"] [data-only="manual"], body[data-mode="run"] [data-only=
   </header>
 
   <div class="grid">
+    <div class="side">
     <section class="field-card" aria-label="สนามจำลอง">
       <svg id="field" viewBox="0 0 400 440" role="img" aria-label="หุ่นมองจากด้านบน วางทับเส้นสีดำ">
         <defs>
@@ -152,6 +163,17 @@ body[data-mode="manual"] [data-only="manual"], body[data-mode="run"] [data-only=
         <p class="hint" id="hint">ลากหุ่นในสนาม ใช้แถบเลื่อน หรือกดปุ่ม ← → บนคีย์บอร์ด</p>
       </div>
     </section>
+      <div class="card">
+        <p class="label">ตั้งค่า PWM (0–255)</p>
+        <div class="pwm" id="pwm"></div>
+        <p class="warn" id="warn" hidden></p>
+        <div class="pwm-actions">
+          <button id="copyCfg">คัดลอกเป็นโค้ด</button>
+          <button id="resetCfg">ค่าเริ่มต้น</button>
+        </div>
+        <pre class="out" id="cfgOut"></pre>
+      </div>
+    </div>
 
     <aside class="side">
       <div class="card">
@@ -183,6 +205,7 @@ body[data-mode="manual"] [data-only="manual"], body[data-mode="run"] [data-only=
         <div data-b="lastR">else if (lastSide == 1)  <span class="c">// หมุนขวาหา</span></div>
         <div data-b="off">else                  <span class="c">// หยุด</span></div>
       </div>
+
     </aside>
   </div>
 </div>
@@ -190,7 +213,10 @@ body[data-mode="manual"] [data-only="manual"], body[data-mode="run"] [data-only=
 <script>
 // ---- same logic as line_track_demo.ino (1 = sensor over black line) ----
 const LINE_X = 200, LINE_HALF = 22, SP = 32, NOSE = 53, ROBOT_Y = 300;
-const maxSpeed = 150, leftOffset = 15, rightOffset = 0, slowSpeed = 20, softTurn = 1.5, hardTurn = 2.5, searchSpeed = -35;
+const DEFAULTS = { maxSpeed:150, leftOffset:15, rightOffset:0, slowSpeed:20, softTurn:1.5, hardTurn:2.5, searchSpeed:-35 };
+const P = { ...DEFAULTS };
+const MOTOR_BIAS = 15;   // sim: left motor runs 15 PWM stronger than the right, like the real robot
+const pwm = v => Math.max(-255, Math.min(255, Math.trunc(v)));   // motorLeft(int) truncates, analogWrite tops out at 255
 
 function sense(x, th){
   return [-SP, 0, SP].map(o => {
@@ -199,14 +225,18 @@ function sense(x, th){
   });
 }
 function decide(left, center, right, lastSide){
+  const { maxSpeed, leftOffset, rightOffset, slowSpeed, softTurn, hardTurn, searchSpeed } = P;
   const turn = slowSpeed * (center ? softTurn : hardTurn);
-  if (left && right) return { l:maxSpeed-leftOffset, r:maxSpeed-rightOffset, b:'both', txt:'วิ่งตรง', dir:0, lastSide };
-  if (right) return { l:maxSpeed-leftOffset, r:maxSpeed-turn-rightOffset, b:'right', txt: center?'เลี้ยวขวาเบา':'เลี้ยวขวาแรง', dir: center?1:2, lastSide:1 };
-  if (left)  return { l:maxSpeed-turn-leftOffset, r:maxSpeed-rightOffset, b:'left', txt: center?'เลี้ยวซ้ายเบา':'เลี้ยวซ้ายแรง', dir: center?-1:-2, lastSide:-1 };
-  if (center) return { l:maxSpeed-leftOffset, r:maxSpeed-rightOffset, b:'center', txt:'วิ่งตรง', dir:0, lastSide };
-  if (lastSide === -1) return { l:searchSpeed, r:0, b:'lastL', txt:'หลุดเส้น → หมุนซ้ายหา', dir:-3, lastSide };
-  if (lastSide === 1)  return { l:0, r:searchSpeed, b:'lastR', txt:'หลุดเส้น → หมุนขวาหา', dir:3, lastSide };
-  return { l:0, r:0, b:'off', txt:'หลุดเส้น → หยุด', dir:null, lastSide };
+  let r;
+  if (left && right) r = { l:maxSpeed-leftOffset, r:maxSpeed-rightOffset, b:'both', txt:'วิ่งตรง', dir:0, lastSide };
+  else if (right) r = { l:maxSpeed-leftOffset, r:maxSpeed-turn-rightOffset, b:'right', txt: center?'เลี้ยวขวาเบา':'เลี้ยวขวาแรง', dir: center?1:2, lastSide:1 };
+  else if (left)  r = { l:maxSpeed-turn-leftOffset, r:maxSpeed-rightOffset, b:'left', txt: center?'เลี้ยวซ้ายเบา':'เลี้ยวซ้ายแรง', dir: center?-1:-2, lastSide:-1 };
+  else if (center) r = { l:maxSpeed-leftOffset, r:maxSpeed-rightOffset, b:'center', txt:'วิ่งตรง', dir:0, lastSide };
+  else if (lastSide === -1) r = { l:searchSpeed, r:0, b:'lastL', txt:'หลุดเส้น → หมุนซ้ายหา', dir:-3, lastSide };
+  else if (lastSide === 1)  r = { l:0, r:searchSpeed, b:'lastR', txt:'หลุดเส้น → หมุนขวาหา', dir:3, lastSide };
+  else r = { l:0, r:0, b:'off', txt:'หลุดเส้น → หยุด', dir:null, lastSide };
+  r.l = pwm(r.l); r.r = pwm(r.r);
+  return r;
 }
 
 // ---- state ----
@@ -264,7 +294,7 @@ function render(){
   $('act').textContent = d.txt;
   $('stateTxt').textContent = `${s.join(' ')} · state ${idx}`;
   [['L',d.l],['R',d.r]].forEach(([k,v])=>{
-    const f = $('f'+k); f.style.width = (Math.abs(v)/maxSpeed*100)+'%'; f.classList.toggle('rev', v < 0);
+    const f = $('f'+k); f.style.width = (Math.abs(v)/255*100)+'%'; f.classList.toggle('rev', v < 0);
     $('n'+k).textContent = v;
   });
   const ar = $('arrow');
@@ -316,7 +346,7 @@ function tick(t){
   if (mode === 'run' && !paused && !dragging){
     const d = decide(...sense(x, th), lastSide); lastSide = d.lastSide;
     // motors: left one is 15 stronger in real life, which leftOffset cancels
-    const eL = d.l > 0 ? d.l + leftOffset : d.l, eR = d.r;
+    const eL = d.l > 0 ? d.l + MOTOR_BIAS : d.l, eR = d.r;
     th += (eL - eR) * 0.02 * dt;
     th = Math.max(-1.2, Math.min(1.2, th));
     const v = (eL + eR)/2 * 0.8;
@@ -342,7 +372,54 @@ function setMode(m){
 $('m-manual').onclick = () => setMode('manual');
 $('m-run').onclick = () => setMode('run');
 
-drawTicks(); setMode('manual');
+// ---- PWM settings ----
+const FIELDS = [
+  ['maxSpeed',   'ความเร็วสูงสุด', 'maxSpeed',   0, 255, 1],
+  ['leftOffset', 'ลดล้อซ้าย',      'leftOffset', 0, 80,  1],
+  ['rightOffset','ลดล้อขวา',       'rightOffset',0, 80,  1],
+  ['slowSpeed',  'ลดตอนเลี้ยว',    'slowSpeed',  0, 100, 1],
+  ['softTurn',   'ตัวคูณเลี้ยวเบา', 'softTurn',   0, 5,   0.1],
+  ['hardTurn',   'ตัวคูณเลี้ยวแรง', 'hardTurn',   0, 8,   0.1],
+  ['searchSpeed','ความเร็วหมุนหาเส้น','searchSpeed',-255, 0, 1],
+];
+const box = $('pwm');
+FIELDS.forEach(([k,label,code,min,max,step])=>{
+  box.insertAdjacentHTML('beforeend',
+    `<label for="r-${k}"><span>${label}</span><code>${code}</code></label>
+     <input type="range" id="r-${k}" min="${min}" max="${max}" step="${step}" value="${P[k]}">
+     <input type="number" id="n-${k}" min="${min}" max="${max}" step="${step}" value="${P[k]}" aria-label="${label}">`);
+});
+const fmt = (k,v) => (k==='softTurn'||k==='hardTurn') ? (+v).toFixed(1) : String(Math.round(v));
+function cfgText(){
+  const c = { maxSpeed:'top speed (0 - 255)', leftOffset:'slow the left wheel by this much', rightOffset:'slow the right wheel by this much',
+    slowSpeed:'how much to slow down when turning', softTurn:'small turn = slowSpeed x this', hardTurn:'big turn = slowSpeed x this' };
+  return Object.keys(c).map(k => `float ${k} = ${fmt(k,P[k])};`.padEnd(26) + `// ${c[k]}`).join('\n')
+    + '\n' + `int searchSpeed = ${fmt('searchSpeed',P.searchSpeed)};`.padEnd(26) + '// spin speed when the line is lost';
+}
+function checkWarn(){
+  const hard = P.maxSpeed - P.slowSpeed*P.hardTurn - Math.max(P.leftOffset,P.rightOffset);
+  const msgs = [];
+  if (hard < 0) msgs.push(`เลี้ยวแรงแล้วล้อด้านในติดลบ (${Math.trunc(hard)}) ล้อนั้นจะหมุนถอยหลัง`);
+  if (P.maxSpeed - P.leftOffset < 60 || P.maxSpeed - P.rightOffset < 60) msgs.push('PWM ต่ำมาก มอเตอร์จริงอาจไม่หมุน');
+  $('warn').hidden = !msgs.length; $('warn').textContent = msgs.join(' · ');
+}
+function applyCfg(){
+  FIELDS.forEach(([k])=>{ $('r-'+k).value = P[k]; $('n-'+k).value = fmt(k,P[k]); });
+  $('cfgOut').textContent = cfgText(); checkWarn(); commit(render());
+}
+FIELDS.forEach(([k,,,min,max])=>{
+  $('r-'+k).addEventListener('input', e => { P[k] = +e.target.value; applyCfg(); });
+  $('n-'+k).addEventListener('change', e => { const v = +e.target.value; if (!isNaN(v)) P[k] = Math.max(min, Math.min(max, v)); applyCfg(); });
+});
+$('resetCfg').onclick = () => { Object.assign(P, DEFAULTS); applyCfg(); };
+$('copyCfg').onclick = () => {
+  const t = cfgText(), btn = $('copyCfg');
+  const done = () => { btn.textContent = 'คัดลอกแล้ว'; setTimeout(()=> btn.textContent = 'คัดลอกเป็นโค้ด', 1500); };
+  const sel = () => { const r = document.createRange(); r.selectNodeContents($('cfgOut')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = 'กด Ctrl+C เพื่อคัดลอก'; };
+  try { navigator.clipboard.writeText(t).then(done, sel); } catch(e){ sel(); }
+};
+
+drawTicks(); setMode('manual'); applyCfg();
 requestAnimationFrame(tick);
 </script>
 </body>
