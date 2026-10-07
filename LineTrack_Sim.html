@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LineTrack Sim</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: field (the robot's floor, seen from above) on the left, readout + code on the right; stacks on phones */
+:root{
+  --bg:#ffffff; --panel:#ffffff; --ink:#1d2733; --body:#434950; --muted:#6f7680;
+  --accent:#1f6f8b; --led:#e07a3f; --led-glow:rgba(224,122,63,.45); --led-soft:#fdf1ea;
+  --rule:#e3e8ed; --soft:#f3f5f8; --code-hl:#fde9dc;
+  --floor:#f4f6f8; --floor-tick:#e2e7ec; --tape:#1d2733; --chassis:#ffffff; --chassis-edge:#1d2733; --wheel:#56606b; --board:#ffffff; --board-edge:#c9d1d9; --led-off:#ffffff; --led-off-edge:#9aa3ad;
+  --f-display:'Sarabun','Leelawadee UI','Tahoma',sans-serif;
+  --f-mono:'JetBrains Mono','Consolas','Courier New',monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#12171d; --panel:#181f27; --ink:#e8edf2; --body:#c2c9d1; --muted:#8c96a1;
+  --accent:#5fb3cf; --led:#f08a4b; --led-glow:rgba(240,138,75,.55); --led-soft:#2c211b;
+  --rule:#2a333d; --soft:#1e262f; --code-hl:#3a2a20; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#12171d; --panel:#181f27; --ink:#e8edf2; --body:#c2c9d1; --muted:#8c96a1;
+  --accent:#5fb3cf; --led:#f08a4b; --led-glow:rgba(240,138,75,.55); --led-soft:#2c211b;
+  --rule:#2a333d; --soft:#1e262f; --code-hl:#3a2a20; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--body);font-family:var(--f-display);font-size:16px;line-height:1.5;margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:20px;padding-block:22px 32px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 20px;margin-bottom:16px}
+.brand{font-weight:700;color:var(--ink);font-size:15px}
+.brand span{color:var(--accent)}
+h1{margin:2px 0 0;font-size:clamp(24px,3.2vw,32px);line-height:1.2;color:var(--ink);font-weight:700;text-wrap:balance}
+.modes{display:inline-flex;border:1px solid var(--rule);border-radius:10px;padding:3px;background:var(--panel)}
+.modes button{font:inherit;font-size:15px;border:0;background:transparent;color:var(--body);padding:6px 14px;border-radius:7px;cursor:pointer}
+.modes button[aria-pressed="true"]{background:var(--accent);color:var(--bg);font-weight:600}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,400px);gap:22px;align-items:start}
+@media (max-width:860px){ .grid{grid-template-columns:minmax(0,1fr)} }
+
+.field-card{border:1px solid var(--rule);border-radius:14px;background:var(--panel);padding:14px;min-width:0}
+svg#field{display:block;width:100%;max-width:520px;margin:0 auto;height:auto;touch-action:none;cursor:ew-resize;border-radius:10px}
+.controls{display:flex;flex-direction:column;gap:10px;margin-top:12px;max-width:520px;margin-inline:auto}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.scale{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+.btns button{font:inherit;font-size:14px;border:1px solid var(--rule);background:var(--panel);color:var(--body);border-radius:8px;padding:4px 11px;cursor:pointer}
+.btns button:hover{border-color:var(--accent);color:var(--accent)}
+.hint{font-size:13px;color:var(--muted);margin:0}
+[data-only]{display:none}
+body[data-mode="manual"] [data-only="manual"], body[data-mode="run"] [data-only="run"]{display:flex}
+
+.side{display:flex;flex-direction:column;gap:14px;min-width:0}
+.card{border:1px solid var(--rule);border-radius:14px;background:var(--panel);padding:16px 18px}
+.label{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:0 0 8px}
+.leds{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center}
+.led{width:34px;height:34px;border-radius:50%;margin:0 auto 6px;border:2px solid var(--led-off-edge);background:var(--led-off);transition:background .12s,box-shadow .12s,border-color .12s}
+.led.on{background:var(--led);border-color:var(--led);box-shadow:0 0 0 6px var(--led-glow),0 0 18px var(--led-glow)}
+.led-name{font-size:14px;color:var(--body)}
+.led-val{font-family:var(--f-mono);font-weight:600;font-size:22px;color:var(--muted);font-variant-numeric:tabular-nums}
+.led-val.on{color:var(--led)}
+.statebar{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-top:14px}
+.st{font-family:var(--f-mono);font-size:11px;text-align:center;padding:5px 0;border-radius:6px;background:var(--soft);color:var(--muted);line-height:1.25}
+.st b{display:block;font-size:13px;color:var(--body)}
+.st.on{background:var(--led);color:var(--bg)}
+.st.on b{color:var(--bg)}
+.action{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.action strong{font-size:24px;color:var(--ink)}
+.action .bits{font-family:var(--f-mono);font-size:15px;color:var(--muted)}
+.wheels{display:grid;grid-template-columns:56px minmax(0,1fr) 48px;gap:8px 10px;align-items:center;margin-top:12px;font-size:14px}
+.track{height:12px;background:var(--soft);border-radius:6px;position:relative;overflow:hidden}
+.fill{position:absolute;top:0;bottom:0;left:0;border-radius:6px;background:var(--accent);transition:width .15s}
+.fill.rev{background:var(--led)}
+.num{font-family:var(--f-mono);font-size:14px;font-weight:600;color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+.code{font-family:var(--f-mono);font-size:12.5px;line-height:1.7;background:var(--soft);border:1px solid var(--rule);border-radius:10px;padding:10px 0;overflow-x:auto;color:var(--ink)}
+.code div{padding:0 14px;white-space:pre;border-left:3px solid transparent;transition:background .12s}
+.code div.on{background:var(--code-hl);border-left-color:var(--led)}
+.code .c{color:var(--muted)}
+.foot{font-size:13px;color:var(--muted);margin-top:4px}
+@media (prefers-reduced-motion: reduce){ .led,.fill,.code div{transition:none} }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <div>
+      <div class="brand">Line<span>Track</span> · sim</div>
+      <h1>เลื่อนหุ่นออกซ้าย–ขวา แล้วดูไฟ IR</h1>
+    </div>
+    <div class="modes" role="group" aria-label="โหมด">
+      <button id="m-manual" aria-pressed="true">เลื่อนเอง</button>
+      <button id="m-run" aria-pressed="false">ให้หุ่นวิ่ง</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="field-card" aria-label="สนามจำลอง">
+      <svg id="field" viewBox="0 0 400 440" role="img" aria-label="หุ่นมองจากด้านบน วางทับเส้นสีดำ">
+        <defs>
+          <marker id="ah-a" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--accent)"/></marker>
+          <marker id="ah-l" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--led)"/></marker>
+          <clipPath id="clip"><rect width="400" height="440" rx="10"/></clipPath>
+        </defs>
+        <g clip-path="url(#clip)">
+          <rect width="400" height="440" style="fill:var(--floor)"/>
+          <g id="ticks"></g>
+          <rect x="178" y="0" width="44" height="440" style="fill:var(--tape)"/>
+          <g id="robot">
+            <rect x="-70" y="-13" width="10" height="46" rx="3" style="fill:var(--wheel)"/>
+            <rect x="60" y="-13" width="10" height="46" rx="3" style="fill:var(--wheel)"/>
+            <rect x="-58" y="-65" width="116" height="130" rx="14" style="fill:var(--chassis);fill-opacity:.78;stroke:var(--chassis-edge);stroke-width:1.6"/>
+            <rect x="-48" y="-63" width="96" height="20" rx="10" style="fill:var(--board);fill-opacity:.92;stroke:var(--board-edge)"/>
+            <circle id="g0" cx="-32" cy="-53" r="13" style="fill:var(--led-glow)" opacity="0"/>
+            <circle id="g1" cx="0" cy="-53" r="13" style="fill:var(--led-glow)" opacity="0"/>
+            <circle id="g2" cx="32" cy="-53" r="13" style="fill:var(--led-glow)" opacity="0"/>
+            <circle id="s0" cx="-32" cy="-53" r="8.5" stroke-width="2"/>
+            <circle id="s1" cx="0" cy="-53" r="8.5" stroke-width="2"/>
+            <circle id="s2" cx="32" cy="-53" r="8.5" stroke-width="2"/>
+            <path id="arrow" d="" fill="none" stroke-width="3.5" stroke-linecap="round"/>
+          </g>
+        </g>
+      </svg>
+
+      <div class="controls">
+        <div data-only="manual" style="flex-direction:column;gap:4px">
+          <input type="range" id="slider" min="-110" max="110" value="0" aria-label="ตำแหน่งหุ่น">
+          <div class="scale"><span>← หุ่นออกซ้าย</span><span>กลางเส้น</span><span>หุ่นออกขวา →</span></div>
+        </div>
+        <div class="btns" data-only="manual">
+          <button data-d="0">ปกติ</button>
+          <button data-d="-16">ออกซ้ายนิด</button>
+          <button data-d="-38">ออกซ้ายเกิน</button>
+          <button data-d="16">ออกขวานิด</button>
+          <button data-d="38">ออกขวาเกิน</button>
+          <button data-d="-95">หลุดเส้น</button>
+        </div>
+        <div class="btns" data-only="run">
+          <button id="pushL">← ผลักไปซ้าย</button>
+          <button id="pushR">ผลักไปขวา →</button>
+          <button id="pause">หยุดชั่วคราว</button>
+          <button id="reset">วางกลับกลางเส้น</button>
+        </div>
+        <div data-only="run" style="flex-direction:column;gap:4px">
+          <label for="speed" class="hint">ความเร็วจำลอง <span id="speedv">0.5×</span></label>
+          <input type="range" id="speed" min="0.15" max="1" step="0.05" value="0.5">
+        </div>
+        <p class="hint" id="hint">ลากหุ่นในสนาม ใช้แถบเลื่อน หรือกดปุ่ม ← → บนคีย์บอร์ด</p>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="card">
+        <p class="label">ไฟ IR บนหุ่น</p>
+        <div class="leds">
+          <div><div class="led" id="led0"></div><div class="led-name">ซ้าย</div><div class="led-val" id="v0">0</div></div>
+          <div><div class="led" id="led1"></div><div class="led-name">กลาง</div><div class="led-val" id="v1">0</div></div>
+          <div><div class="led" id="led2"></div><div class="led-name">ขวา</div><div class="led-val" id="v2">0</div></div>
+        </div>
+        <div class="statebar" id="statebar" aria-label="8 state"></div>
+        <p class="foot">ไฟติด = 1 = เจอเส้นดำ · 3 ตัว × 2 ค่า = 2³ = 8 state</p>
+      </div>
+
+      <div class="card">
+        <div class="action"><strong id="act">วิ่งตรง</strong><span class="bits" id="stateTxt">state 2</span></div>
+        <div class="wheels">
+          <span>ล้อซ้าย</span><div class="track"><div class="fill" id="fL"></div></div><span class="num" id="nL">135</span>
+          <span>ล้อขวา</span><div class="track"><div class="fill" id="fR"></div></div><span class="num" id="nR">150</span>
+        </div>
+        <p class="foot" id="lastTxt">lastSide = 0</p>
+      </div>
+
+      <div class="code" id="code" aria-label="โค้ดใน loop()">
+        <div data-b="both">if (left &amp;&amp; right)  <span class="c">// วิ่งตรง</span></div>
+        <div data-b="right">else if (right)       <span class="c">// เลี้ยวขวา</span></div>
+        <div data-b="left">else if (left)        <span class="c">// เลี้ยวซ้าย</span></div>
+        <div data-b="center">else if (center)      <span class="c">// วิ่งตรง</span></div>
+        <div data-b="lastL">else if (lastSide == -1) <span class="c">// หมุนซ้ายหา</span></div>
+        <div data-b="lastR">else if (lastSide == 1)  <span class="c">// หมุนขวาหา</span></div>
+        <div data-b="off">else                  <span class="c">// หยุด</span></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+// ---- same logic as line_track_demo.ino (1 = sensor over black line) ----
+const LINE_X = 200, LINE_HALF = 22, SP = 32, NOSE = 53, ROBOT_Y = 300;
+const maxSpeed = 150, leftOffset = 15, rightOffset = 0, slowSpeed = 20, softTurn = 1.5, hardTurn = 2.5, searchSpeed = -35;
+
+function sense(x, th){
+  return [-SP, 0, SP].map(o => {
+    const wx = x + o*Math.cos(th) + NOSE*Math.sin(th);
+    return Math.abs(wx - LINE_X) < LINE_HALF ? 1 : 0;
+  });
+}
+function decide(left, center, right, lastSide){
+  const turn = slowSpeed * (center ? softTurn : hardTurn);
+  if (left && right) return { l:maxSpeed-leftOffset, r:maxSpeed-rightOffset, b:'both', txt:'วิ่งตรง', dir:0, lastSide };
+  if (right) return { l:maxSpeed-leftOffset, r:maxSpeed-turn-rightOffset, b:'right', txt: center?'เลี้ยวขวาเบา':'เลี้ยวขวาแรง', dir: center?1:2, lastSide:1 };
+  if (left)  return { l:maxSpeed-turn-leftOffset, r:maxSpeed-rightOffset, b:'left', txt: center?'เลี้ยวซ้ายเบา':'เลี้ยวซ้ายแรง', dir: center?-1:-2, lastSide:-1 };
+  if (center) return { l:maxSpeed-leftOffset, r:maxSpeed-rightOffset, b:'center', txt:'วิ่งตรง', dir:0, lastSide };
+  if (lastSide === -1) return { l:searchSpeed, r:0, b:'lastL', txt:'หลุดเส้น → หมุนซ้ายหา', dir:-3, lastSide };
+  if (lastSide === 1)  return { l:0, r:searchSpeed, b:'lastR', txt:'หลุดเส้น → หมุนขวาหา', dir:3, lastSide };
+  return { l:0, r:0, b:'off', txt:'หลุดเส้น → หยุด', dir:null, lastSide };
+}
+
+// ---- state ----
+let mode = 'manual', x = LINE_X, th = 0, lastSide = 0, scroll = 0, paused = false, dragging = false, speedK = 0.5;
+const $ = id => document.getElementById(id);
+const svg = $('field');
+
+// floor ticks (show forward motion in run mode)
+const ticks = $('ticks');
+for (let i = 0; i < 13; i++){
+  const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  r.setAttribute('x', 0); r.setAttribute('width', 400); r.setAttribute('height', 2);
+  r.style.fill = 'var(--floor-tick)'; ticks.appendChild(r);
+}
+function drawTicks(){ [...ticks.children].forEach((r,i)=> r.setAttribute('y', ((i*40 + scroll) % 520) - 40)); }
+
+// state strip
+const strip = $('statebar');
+for (let i = 0; i < 8; i++){
+  const b = [(i>>2)&1,(i>>1)&1,i&1];
+  strip.insertAdjacentHTML('beforeend', `<div class="st" id="st${i}"><b>${i}</b>${b.join('')}</div>`);
+}
+
+const ARROWS = {
+  0:  'M0 -74 V-112',
+  1:  'M0 -74 Q0 -106 30 -110', 2: 'M0 -74 Q0 -104 50 -112',
+  '-1':'M0 -74 Q0 -106 -30 -110','-2':'M0 -74 Q0 -104 -50 -112',
+  3:  'M0 -74 Q0 -104 50 -112', '-3':'M0 -74 Q0 -104 -50 -112',
+};
+
+// manual mode: nose turns toward where the code is steering (pivot on the sensor bar so readings stay put)
+const TURN_DEG = { 0:0, 1:12, 2:24, 3:32, '-1':-12, '-2':-24, '-3':-32 };
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let targetDeg = 0, visDeg = 0;
+function placeRobot(){
+  $('robot').setAttribute('transform', mode === 'manual'
+    ? `translate(${x} ${ROBOT_Y}) rotate(${visDeg} 0 -53)`
+    : `translate(${x} ${ROBOT_Y}) rotate(${th*180/Math.PI})`);
+}
+
+function render(){
+  const s = sense(x, th), d = decide(...s, lastSide);
+  if (mode === 'manual') targetDeg = d.dir === null ? 0 : TURN_DEG[d.dir];
+  placeRobot();
+  s.forEach((v,i)=>{
+    const c = $('s'+i);
+    c.style.fill = v ? 'var(--led)' : 'var(--led-off)';
+    c.style.stroke = v ? 'var(--led-off)' : 'var(--led-off-edge)';
+    $('g'+i).setAttribute('opacity', v ? 1 : 0);
+    $('led'+i).classList.toggle('on', !!v);
+    $('v'+i).textContent = v; $('v'+i).classList.toggle('on', !!v);
+  });
+  const idx = s[0]*4 + s[1]*2 + s[2];
+  for (let i = 0; i < 8; i++) $('st'+i).classList.toggle('on', i === idx);
+  $('act').textContent = d.txt;
+  $('stateTxt').textContent = `${s.join(' ')} · state ${idx}`;
+  [['L',d.l],['R',d.r]].forEach(([k,v])=>{
+    const f = $('f'+k); f.style.width = (Math.abs(v)/maxSpeed*100)+'%'; f.classList.toggle('rev', v < 0);
+    $('n'+k).textContent = v;
+  });
+  const ar = $('arrow');
+  if (d.dir === null){ ar.setAttribute('d',''); }
+  else {
+    const hard = Math.abs(d.dir) >= 2;
+    ar.setAttribute('d', ARROWS[d.dir]);
+    ar.style.stroke = hard ? 'var(--led)' : 'var(--accent)';
+    ar.setAttribute('marker-end', hard ? 'url(#ah-l)' : 'url(#ah-a)');
+  }
+  document.querySelectorAll('#code div').forEach(el => el.classList.toggle('on', el.dataset.b === d.b));
+  return d;
+}
+
+function commit(d){ lastSide = d.lastSide; $('lastTxt').textContent = `lastSide = ${lastSide}  (${lastSide===1?'เห็นเส้นทางขวาล่าสุด':lastSide===-1?'เห็นเส้นทางซ้ายล่าสุด':'ยังไม่เคยเห็นเส้น'})`; }
+
+// ---- manual mode ----
+function setX(nx){ x = Math.max(LINE_X-110, Math.min(LINE_X+110, nx)); $('slider').value = Math.round(x-LINE_X); commit(render()); }
+$('slider').addEventListener('input', e => { th = 0; setX(LINE_X + +e.target.value); });
+document.querySelectorAll('[data-d]').forEach(b => b.addEventListener('click', () => { th = 0; setX(LINE_X + +b.dataset.d); }));
+
+// drag on field (both modes)
+function svgX(ev){ const p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()).x; }
+svg.addEventListener('pointerdown', ev => { dragging = true; svg.setPointerCapture(ev.pointerId); th = 0; setX(svgX(ev)); });
+svg.addEventListener('pointermove', ev => { if (dragging){ th = 0; setX(svgX(ev)); } });
+['pointerup','pointercancel'].forEach(t => svg.addEventListener(t, () => dragging = false));
+addEventListener('keydown', ev => {
+  if (ev.target.tagName === 'INPUT' && ev.target.type === 'range') return;
+  if (ev.key === 'ArrowLeft'){ ev.preventDefault(); if (mode==='run') push(-1); else setX(x-4); }
+  if (ev.key === 'ArrowRight'){ ev.preventDefault(); if (mode==='run') push(1); else setX(x+4); }
+});
+
+// ---- run mode ----
+function push(dir){ x = Math.max(LINE_X-110, Math.min(LINE_X+110, x + dir*28)); th += dir*0.25; commit(render()); }
+$('pushL').onclick = () => push(-1);
+$('pushR').onclick = () => push(1);
+$('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'วิ่งต่อ' : 'หยุดชั่วคราว'; };
+$('reset').onclick = () => { x = LINE_X; th = 0; lastSide = 0; commit(render()); };
+$('speed').addEventListener('input', e => { speedK = +e.target.value; $('speedv').textContent = speedK.toFixed(2).replace(/0$/,'') + '×'; });
+
+let prev = null;
+function tick(t){
+  if (prev === null) prev = t;
+  const realDt = Math.min(0.05, (t - prev)/1000), dt = realDt * speedK; prev = t;
+  if (mode === 'manual' && visDeg !== targetDeg){
+    visDeg = reduceMotion || Math.abs(targetDeg - visDeg) < 0.2 ? targetDeg : visDeg + (targetDeg - visDeg) * Math.min(1, realDt * 7);
+    placeRobot();
+  }
+  if (mode === 'run' && !paused && !dragging){
+    const d = decide(...sense(x, th), lastSide); lastSide = d.lastSide;
+    // motors: left one is 15 stronger in real life, which leftOffset cancels
+    const eL = d.l > 0 ? d.l + leftOffset : d.l, eR = d.r;
+    th += (eL - eR) * 0.02 * dt;
+    th = Math.max(-1.2, Math.min(1.2, th));
+    const v = (eL + eR)/2 * 0.8;
+    x += v * Math.sin(th) * dt;
+    if (x < LINE_X-150 || x > LINE_X+150){ x = Math.max(LINE_X-150, Math.min(LINE_X+150, x)); }
+    scroll = (scroll + v*Math.cos(th)*dt) % 520; if (scroll < 0) scroll += 520;
+    drawTicks(); commit(render());
+  }
+  requestAnimationFrame(tick);
+}
+
+function setMode(m){
+  mode = m; document.body.dataset.mode = m;
+  $('m-manual').setAttribute('aria-pressed', m==='manual');
+  $('m-run').setAttribute('aria-pressed', m==='run');
+  $('hint').textContent = m === 'manual'
+    ? 'ลากหุ่นในสนาม ใช้แถบเลื่อน หรือกดปุ่ม ← → บนคีย์บอร์ด'
+    : 'หุ่นวิ่งตามโค้ดจริง ลองผลักหรือลากหุ่นออกจากเส้น แล้วดูมันแก้ทางกลับมา';
+  if (m === 'manual'){ visDeg = th*180/Math.PI; th = 0; setX(x); }
+  if (m === 'run' && Math.abs(x-LINE_X) < 4){ x = LINE_X - 40; th = 0; }
+  commit(render());
+}
+$('m-manual').onclick = () => setMode('manual');
+$('m-run').onclick = () => setMode('run');
+
+drawTicks(); setMode('manual');
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
